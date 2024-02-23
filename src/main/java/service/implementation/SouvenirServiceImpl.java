@@ -1,105 +1,109 @@
 package service.implementation;
 
+import data_storage.ProducerSouvenirJoiner;
 import model.Souvenir;
 import service.SouvenirService;
 
-import java.io.*;
+import java.util.AbstractMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 public class SouvenirServiceImpl implements SouvenirService{
     private static SouvenirServiceImpl souvenirService;
-    private ProductSouvenirJoiner productSouvenirJoiner;
-    private Set<Souvenir> souvenirs;
+    private final ProducerSouvenirJoiner producerSouvenirJoiner;
 
-    private SouvenirServiceImpl(){
+    private SouvenirServiceImpl(ProducerSouvenirJoiner producerSouvenirJoiner){
+        this.producerSouvenirJoiner = producerSouvenirJoiner;
     }
 
-    public static SouvenirServiceImpl getInstance(){
+    public static SouvenirServiceImpl getInstance(ProducerSouvenirJoiner producerSouvenirJoiner){
         if(souvenirService == null){
-            souvenirService = new SouvenirServiceImpl();
+            souvenirService = new SouvenirServiceImpl(producerSouvenirJoiner);
         }
         return souvenirService;
     }
 
-    @Override
-    public Set<Souvenir> add(Souvenir souvenir) {
-        if(souvenirs == null) {
-            souvenirs = new HashSet<>();
-        }
-        this.souvenirs.add(souvenir);
-        //  productSouvenirJoiner.addSouvenir(souvenir.getProducer(), souvenir);
-        return souvenirs;
-    }
+   @Override
+  public void addSouvenir(Souvenir souvenir){
+      Map<Long, Set<Souvenir>> producersSouvenir = producerSouvenirJoiner.getAll();
+      if(producersSouvenir.isEmpty()){
+          producersSouvenir.put(souvenir.getProducer().getId(), new HashSet<>());
+      }
+      if(!producersSouvenir.containsKey(souvenir.getProducer().getId())){
+          producersSouvenir.put(souvenir.getProducer().getId(), new HashSet<>());
+      }
+      Set<Souvenir> souvenirs = producersSouvenir.get(souvenir.getProducer().getId());
+       souvenirs.add(souvenir);
+       producersSouvenir.put(souvenir.getProducer().getId(), souvenirs);
+  }
+
 
     @Override
     public Souvenir readById(long id) {
-        return souvenirs.stream()
-                .filter(s -> id == s.getId())
+        Map<Long, Set<Souvenir>> producersSouvenir = producerSouvenirJoiner.getAll();
+        return producersSouvenir.values().stream()
+                .flatMap(Set::stream)
+                .filter(souvenir -> souvenir.getId() == id)
                 .findAny()
                 .orElse(null);
     }
 
     @Override
-    public Set<Souvenir> update(Souvenir souvenir) {
-       return this.souvenirs.stream()
-                .filter(s -> s.getId() == souvenir.getId())
-                .peek(s -> {
-                    s.setName(souvenir.getName());
-                    s.setPrice(souvenir.getPrice());
-                    s.setProducer(souvenir.getProducer());  //чи може помінятись виробник? виключити поле звідси чи зробити final в класі Souvenir
-                    s.setDate(souvenir.getDate());          //або зробити видалення сувеніру виробника та присвоєння нового через дані ProductSouvenirJoiner
+    public void update(Souvenir souvenir) {
+        Map<Long, Set<Souvenir>> producersSouvenir = producerSouvenirJoiner.getAll().entrySet().stream()
+                .map(entry -> {
+                    Long producerId = entry.getKey();
+                    Set<Souvenir> souvenirs = entry.getValue().stream()
+                            .filter(s -> s.getId() == souvenir.getId())
+                            .peek(souvenir1 -> {
+                    souvenir1.setName(souvenir.getName());
+                    souvenir1.setPrice(souvenir.getPrice());
+                    souvenir1.setDate(souvenir.getDate());})
+                            .collect(Collectors.toSet());
+                    return new AbstractMap.SimpleEntry<>(producerId, souvenirs);
                 })
-               .collect(Collectors.toSet());
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     @Override
     public void delete(Souvenir souvenir) {
-         this.souvenirs.remove(souvenir);
+        Map<Long, Set<Souvenir>> producersSouvenir = producerSouvenirJoiner.getAll().entrySet().stream()
+                .map(entry -> {
+                    Long producerId = entry.getKey();
+                    Set<Souvenir> souvenirs = entry.getValue();
+                    souvenirs.removeIf(s -> s.getId() == souvenir.getId());
+                    return new AbstractMap.SimpleEntry<>(producerId, souvenirs);
+                })
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     @Override
     public Set<Souvenir> getAll() {
-        return this.souvenirs;
+        return producerSouvenirJoiner.getAll().values()
+                .stream()
+                .flatMap(Set::stream)
+                .collect(Collectors.toSet());
     }
 
     @Override
     public Set<Souvenir> getByProducerId(long producerId) {
-        return souvenirs.stream().filter(s -> producerId == s.getProducer().getId()).collect(Collectors.toSet());
+        return producerSouvenirJoiner.getAll().get(producerId);
     }
 
     @Override
     public Set<Souvenir> getByCountry(String country){
-        return this.souvenirs.stream()
+        return getAll().stream()
                 .filter(s -> country.equalsIgnoreCase(s.getProducer().getCountry()))
                 .collect(Collectors.toSet());
     }
 
     @Override
     public Set<Souvenir> getByYear(int year){
-        return this.souvenirs.stream()
+        return getAll().stream()
                 .filter(s -> year == s.getDate())
                 .collect(Collectors.toSet());
     }
 
-    @Override
-    public void writeToFile() {
-        try(ObjectOutputStream output = new ObjectOutputStream(new FileOutputStream("souvenirs_catalog.txt"))){
-            for(Souvenir souvenir : souvenirs) {
-                output.writeObject(souvenir);
-            }
-        }catch (IOException e){}
-    }
-
-    @Override
-    public void readFromFile() {
-        Souvenir souvenir = null;
-        try(ObjectInputStream in = new ObjectInputStream(new FileInputStream("souvenirs_catalog.txt"))){
-            while (in.available() >= 0) {
-                souvenir = (Souvenir) in.readObject();
-                System.out.println(souvenir);
-            }
-        } catch(IOException | ClassNotFoundException e){}
-    }
 }

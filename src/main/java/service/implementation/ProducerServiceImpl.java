@@ -1,95 +1,92 @@
 package service.implementation;
 
+import data_storage.ProducerSouvenirJoiner;
 import model.Producer;
 import model.Souvenir;
 import service.ProducerService;
 
-import java.io.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
 public class ProducerServiceImpl implements ProducerService {
     private static ProducerServiceImpl producerService;
+    private final ProducerSouvenirJoiner producerSouvenirJoiner;
 
-   private List<Producer> producers;
 
-   private ProducerServiceImpl(List<Producer> producers){
-       this.producers = producers;
+   private ProducerServiceImpl(ProducerSouvenirJoiner productSouvenirJoiner){
+       this.producerSouvenirJoiner = productSouvenirJoiner;
    }
 
-   public static ProducerServiceImpl getInstance(List<Producer> producers){
+   public static ProducerServiceImpl getInstance(ProducerSouvenirJoiner productSouvenirJoiner){
        if(producerService == null){
-           producerService = new ProducerServiceImpl(producers);
+           producerService = new ProducerServiceImpl(productSouvenirJoiner);
        }
        return producerService;
    }
 
     @Override
-    public List<Producer> add(Producer producer) {
-        if(producers == null){
-            producers = new ArrayList<>();
-        }
-        this.producers.add(producer);
-        return producers;
+    public void addProducer(Producer producer) {
+        Map<Long, Set<Souvenir>> producersSouvenir = producerSouvenirJoiner.getAll();
+        producersSouvenir.put(producer.getId(), new HashSet<>());
     }
 
 
     @Override
     public Producer readById(long id) {
-        return producers.stream()
-                .filter(p -> id == p.getId())
-                .findAny()
+        Map<Long, Set<Souvenir>> producersSouvenir = producerSouvenirJoiner.getAll();
+        return producersSouvenir.values().stream()
+                .flatMap(Set::stream)
+                .filter(souvenir -> souvenir.getProducer().getId() == id)
+                .findFirst()
+                .map(Souvenir::getProducer)
                 .orElse(null);
     }
 
     @Override
-    public List<Producer> update(Producer producer) {
-        return producers.stream()
-                .filter(p -> p.getId() == producer.getId())
-                .peek(s -> {
-                    s.setName(producer.getName());
-                    s.setCountry(producer.getCountry());
-                })
-                .collect(Collectors.toList());
+    public void update(Producer producer) {
+        Map<Long, Set<Souvenir>> producersSouvenir = producerSouvenirJoiner.getAll();
+        Set<Souvenir> souvenirs = producersSouvenir.values().stream()
+                .flatMap(Set::stream)
+                .filter(p -> p.getProducer().getId() == producer.getId())
+                .peek(s -> s.setProducer(producer))
+                .collect(Collectors.toSet());
+        producersSouvenir.put(producer.getId(), souvenirs);
     }
 
     @Override
-    public boolean delete(long id) {
-        return producers.removeIf(p -> id == p.getId());
+    public void delete(Producer producer) {
+        Map<Long, Set<Souvenir>> producersSouvenir = producerSouvenirJoiner.getAll();
+        producersSouvenir.remove(producer.getId());
     }
 
     @Override
     public List<Producer> getAll() {
-        return producers;
+        return producerSouvenirJoiner.getAll()
+                .values().stream()
+                .flatMap(Set::stream)
+                .map(Souvenir::getProducer)
+                .distinct()
+                .collect(Collectors.toList());
     }
-
-//    public Set<Souvenir> getProducersSouvenirs(Producer producer) { //забрано сет сувенірів з класу виробника, метод перенесено до ProductSouvenirJoiner
-//        return producer.getSouvenirs();
-//    }
-//
-//    public List<Producer> getCheapestProducers(double price){//перенесено до Joiner
-//       return producers.stream().filter(producer -> producer.getSouvenirs().stream()
-//               .allMatch(souvenir -> price > souvenir.getPrice())).collect(Collectors.toList());
-//    }
-
     @Override
-    public void writeToFile() {
-        try(ObjectOutputStream output = new ObjectOutputStream(new FileOutputStream("producers_catalog.txt"))){
-            for(Producer producer : producers) {
-                output.writeObject(producer);
-            }
-        }catch (IOException e){}
-    }
+    public List<Producer> getCheapestProducers(double price){
+        Map<Long, Set<Souvenir>> producersSouvenir = producerSouvenirJoiner.getAll();
+        return producersSouvenir.values().stream()
+                .flatMap(Set::stream)
+                .filter(s1 -> price > s1.getPrice())
+                .map(Souvenir::getProducer)
+                .distinct()
+                .collect(Collectors.toList());
 
+    }
     @Override
-    public void readFromFile() {
-        Producer producer = null;
-        try(ObjectInputStream in = new ObjectInputStream(new FileInputStream("producers_catalog.txt"))){
-            while (in.available() >= 0) {
-                producer = (Producer) in.readObject();
-                System.out.println(producer);
-            }
-        } catch(IOException | ClassNotFoundException e){}
+    public List<Producer> getProducersOfSouvenirsByYear(String name, int year){
+        Map<Long, Set<Souvenir>> producersSouvenir = producerSouvenirJoiner.getAll();
+        return producersSouvenir.values().stream()
+                .flatMap(Set::stream)
+                .filter(s -> s.getName() == name)
+                .filter(s1 -> s1.getDate() == year)
+                .map(Souvenir::getProducer)
+                .collect(Collectors.toList());
     }
-
 }

@@ -8,12 +8,12 @@ import java.util.Map;
 import java.util.Set;
 
 public interface ProducerService {
-    List<Producer> add(Producer producer);
+    void addProducer(Producer producer);
     Producer readById(long id);
-    List<Producer> update(Producer souvenir);
-    boolean delete(long id);
+    void update(Producer producer);
+    void delete(Producer producer);
     List<Producer> getAll();
-    void writeToFile();
-    void readFromFile();
+    List<Producer> getCheapestProducers(double price);
+    List<Producer> getProducersOfSouvenirsByYear(String name, int year);
 
 }
